@@ -7,6 +7,7 @@ umask 077
 
 PREFIX="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 ID="$PREFIX/.gpg-id"
+ID_LIST="$PREFIX/.team-gpg-ids"
 GIT_DIR="${PASSWORD_STORE_GIT:-$PREFIX}/.git"
 GPG_OPTS="--quiet --yes --batch"
 
@@ -69,14 +70,30 @@ is_command() {
 }
 git_add_file() {
 	[[ -d $GIT_DIR ]] || return
+	[[ -r $1 ]] || return
 	git add "$1" || return
 	[[ -n $(git status --porcelain "$1") ]] || return
 	git commit -m "$2"
+}
+git_ignore() {
+	[[ -d $GIT_DIR ]] || return
+	echo "$1" >> "${PREFIX}/.gitignore"
 }
 yesno() {
 	read -p "$1 [y/N] " response
 	[[ $response == "y" || $response == "Y" ]] || exit 1
 }
+
+read_recipients() {
+	gpg_recipients=""
+	exec 3<&0
+	exec 0<"$ID_LIST"
+	while read line; do
+		gpg_recipients="${gpg_recipients}-r $line "
+	done
+	exec 0<&3
+}
+
 #
 # BEGIN Platform definable
 #
@@ -134,15 +151,19 @@ else
 	command="show"
 fi
 
+read_recipients
+
 case "$command" in
 	init)
 		reencrypt=0
+		multiuser=0
 
-		opts="$($GETOPT -o e -l reencrypt -n "$program" -- "$@")"
+		opts="$($GETOPT -o em -l reencrypt,multiuser -n "$program" -- "$@")"
 		err=$?
 		eval set -- "$opts"
 		while true; do case $1 in
 			-e|--reencrypt) reencrypt=1; shift ;;
+			-m|--multiuser) multiuser=1; shift ;;
 			--) shift; break ;;
 		esac done
 
@@ -155,11 +176,19 @@ case "$command" in
 		mkdir -v -p "$PREFIX"
 		echo "$gpg_id" > "$ID"
 		echo "Password store initialized for $gpg_id."
-		git_add_file "$ID" "Set GPG id to $gpg_id."
+		if [[ $multiuser -eq 1 ]]; then
+			echo "$gpg_id" >>"$ID_LIST"
+			sort "$ID_LIST" -o "$ID_LIST" -u
+			git_ignore "/$(basename $ID)"
+			git_add_file .gitignore "Ignore own id"
+			git_add_file "$ID_LIST" "Add $gpg_id to team ID list"
+		else
+			git_add_file "$ID" "Set GPG id to $gpg_id."
+		fi
 
 		if [[ $reencrypt -eq 1 ]]; then
 			find "$PREFIX" -iname '*.gpg' | while read passfile; do
-				gpg2 -d $GPG_OPTS "$passfile" | gpg2 -e -r "$gpg_id" -o "$passfile.new" $GPG_OPTS &&
+				gpg2 -d $GPG_OPTS "$passfile" | gpg2 -e $gpg_recipients -o "$passfile.new" $GPG_OPTS &&
 				mv -v "$passfile.new" "$passfile"
 			done
 			git_add_file "$PREFIX" "Reencrypted entire store using new GPG id $gpg_id."
@@ -257,7 +286,7 @@ case "$command" in
 		if [[ $multiline -eq 1 ]]; then
 			echo "Enter contents of $path and press Ctrl+D when finished:"
 			echo
-			gpg2 -e -r "$ID" -o "$passfile" $GPG_OPTS
+			gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS
 		elif [[ $noecho -eq 1 ]]; then
 			while true; do
 				read -r -p "Enter password for $path: " -s password
@@ -265,7 +294,7 @@ case "$command" in
 				read -r -p "Retype password for $path: " -s password_again
 				echo
 				if [[ $password == "$password_again" ]]; then
-					gpg2 -e -r "$ID" -o "$passfile" $GPG_OPTS <<<"$password"
+					gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$password"
 					break
 				else
 					echo "Error: the entered passwords do not match."
@@ -273,7 +302,7 @@ case "$command" in
 			done
 		else
 			read -r -p "Enter password for $path: " -e password
-			gpg2 -e -r "$ID" -o "$passfile" $GPG_OPTS <<<"$password"
+			gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$password"
 		fi
 		git_add_file "$passfile" "Added given password for $path to store."
 		;;
@@ -299,7 +328,7 @@ case "$command" in
 			action="Edited"
 		fi
 		${EDITOR:-vi} "$tmp_file"
-		while ! gpg2 -e -r "$ID" -o "$passfile" $GPG_OPTS "$tmp_file"; do
+		while ! gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS "$tmp_file"; do
 			echo "GPG encryption failed. Retrying."
 			sleep 1
 		done
@@ -337,7 +366,7 @@ case "$command" in
 
 		pass="$(pwgen -s $symbols $length 1)"
 		[[ -n $pass ]] || exit 1
-		gpg2 -e -r "$ID" -o "$passfile" $GPG_OPTS <<<"$pass"
+		gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$pass"
 		git_add_file "$passfile" "Added generated password for $path to store."
 		
 		if [[ $clip -eq 0 ]]; then
