@@ -5,6 +5,8 @@
 
 umask 077
 
+# Check dependencies
+
 PREFIX="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 ID="$PREFIX/.gpg-id"
 ID_LIST="$PREFIX/.team-gpg-ids"
@@ -150,6 +152,14 @@ if is_command "$command"; then
 else
 	command="show"
 fi
+
+for cmd in tree gpg2; do
+	if ! command -v $cmd >/dev/null 2>&1; then
+		echo "$program depends on the '$cmd' command. Please install it to continue."
+		exit 1
+	fi
+done
+
 
 read_recipients
 
