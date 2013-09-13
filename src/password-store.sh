@@ -45,6 +45,8 @@ Usage:
         Insert new password. Optionally, the console can be enabled echo
         the password back. Or, optionally, it may be multiline. Prompt
         before overwriting existing password unless forced.
+    $program import
+        import team keys from $ID_LIST
     $program edit pass-name
         Insert a new password or edit an existing password using ${EDITOR:-vi}.
     $program generate [--no-symbols,-n] [--clip,-c] [--force,-f] pass-name pass-length
@@ -66,7 +68,7 @@ _EOF
 }
 is_command() {
 	case "$1" in
-		init|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
+		init|import|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -431,6 +433,11 @@ case "$command" in
 			echo "Error: the password store is not a git repository."
 			exit 1
 		fi
+		;;
+	import)
+    while read k; do
+      gpg2 --recv-keys $k
+    done < $ID_LIST
 		;;
 	*)
 		usage
