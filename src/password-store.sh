@@ -435,9 +435,9 @@ case "$command" in
 		fi
 		;;
 	import)
-    while read k; do
-      gpg2 --recv-keys $k
-    done < $ID_LIST
+		while read k; do
+			gpg2 --recv-keys $k
+		done < $ID_LIST
 		;;
 	*)
 		usage
