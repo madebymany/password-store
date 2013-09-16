@@ -93,6 +93,32 @@ gpg_check_public_keys() {
 	fi
 }
 
+read_item_properties() {
+	local noecho=$1 password=$2 url username password_again
+	read -r -p "Enter URL for $path: " url
+	read -r -p "Enter username for $path: " username
+
+	if [[ -z "$password" ]]; then
+		if [[ $noecho -eq 1 ]]; then
+			while true; do
+				read -r -p "Enter password for $path: " -s password
+				echo >&2
+				read -r -p "Retype password for $path: " -s password_again
+				echo >&2
+				if [[ $password == "$password_again" ]]; then
+					break
+				else
+					echo "Error: the entered passwords do not match."  >&2
+				fi
+			done
+		else
+			read -r -p "Enter password for $path: " -e password
+		fi
+	fi
+
+	echo -e "URL: $url\nUsername: $username\nPassword: $password"
+}
+
 uniq_gpg_ids() {
 	sort -u -o "$IDS" "$IDS"
 }
@@ -329,22 +355,9 @@ case "$command" in
 			echo "Enter contents of $path and press Ctrl+D when finished:"
 			echo
 			gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS
-		elif [[ $noecho -eq 1 ]]; then
-			while true; do
-				read -r -p "Enter password for $path: " -s password
-				echo
-				read -r -p "Retype password for $path: " -s password_again
-				echo
-				if [[ $password == "$password_again" ]]; then
-					gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$password"
-					break
-				else
-					echo "Error: the entered passwords do not match."
-				fi
-			done
 		else
-			read -r -p "Enter password for $path: " -e password
-			gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$password"
+			item_info=$(read_item_properties $noecho "")
+			gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$item_info"
 		fi
 		git_add_file "$passfile" "Added given password for $path to store."
 		;;
@@ -408,7 +421,8 @@ case "$command" in
 
 		pass="$(pwgen -s $symbols $length 1)"
 		[[ -n $pass ]] || exit 1
-		gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$pass"
+		item_info=$(read_item_properties 0 "$pass")
+		gpg2 -e $gpg_recipients -o "$passfile" $GPG_OPTS <<<"$item_info"
 		git_add_file "$passfile" "Added generated password for $path to store."
 		
 		if [[ $clip -eq 0 ]]; then
