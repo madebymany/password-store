@@ -6,13 +6,15 @@
 umask 077
 
 PREFIX="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
-ID="$PREFIX/.gpg-id"
-ID_LIST="$PREFIX/.team-gpg-ids"
+IDS="$PREFIX/.gpg-id"
 GIT_DIR="${PASSWORD_STORE_GIT:-$PREFIX}/.git"
 GPG_OPTS="--quiet --yes --batch"
 
 export GIT_DIR
 export GIT_WORK_TREE="${PASSWORD_STORE_GIT:-$PREFIX}"
+export GPG_TTY=$(tty) # otherwise pinentry fails in a pipe
+
+set -e # stop on errors
 
 version() {
 	cat <<_EOF
@@ -44,7 +46,7 @@ Usage:
         the password back. Or, optionally, it may be multiline. Prompt
         before overwriting existing password unless forced.
     $program import
-        import team keys from $ID_LIST
+        import team keys from $IDS
     $program edit pass-name
         Insert a new password or edit an existing password using ${EDITOR:-vi}.
     $program generate [--no-symbols,-n] [--clip,-c] [--force,-f] pass-name pass-length
@@ -66,34 +68,40 @@ _EOF
 }
 is_command() {
 	case "$1" in
-		init|import|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
+		init|reencrypt|import|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
 		*) return 1 ;;
 	esac
 }
 git_add_file() {
 	[[ -d $GIT_DIR ]] || return
-	[[ -r $1 ]] || return
+	[[ ! -r "$1" ]] && [ "$1" != ':/' ] && return
 	git add "$1" || return
 	[[ -n $(git status --porcelain "$1") ]] || return
 	git commit -m "$2"
-}
-git_ignore() {
-	[[ -d $GIT_DIR ]] || return
-	echo "$1" >> "${PREFIX}/.gitignore"
 }
 yesno() {
 	read -p "$1 [y/N] " response
 	[[ $response == "y" || $response == "Y" ]] || exit 1
 }
 
+gpg_check_public_keys() {
+	local num=$(echo $1 | wc -w)
+	local num_valid=$(gpg2 --with-colons --list-public-keys $1 | grep "^pub:" -c)
+	if (( $num != $num_valid )); then
+		echo "One or more key IDs are not in your keychain. Please check and try again."
+		exit 1
+	fi
+}
+
+uniq_gpg_ids() {
+	sort -u -o "$IDS" "$IDS"
+}
+
 read_recipients() {
 	gpg_recipients=""
-	exec 3<&0
-	exec 0<"$ID_LIST"
 	while read line; do
 		gpg_recipients="${gpg_recipients}-r $line "
-	done
-	exec 0<&3
+	done < "$IDS"
 }
 
 #
@@ -162,48 +170,34 @@ for cmd in tree gpg2; do
 done
 
 
-read_recipients
-
 case "$command" in
 	init)
-		reencrypt=0
-		multiuser=0
+		init_git=0
 
-		opts="$($GETOPT -o em -l reencrypt,multiuser -n "$program" -- "$@")"
+		opts="$($GETOPT -o g -l git -n "$program" -- "$@")"
 		err=$?
 		eval set -- "$opts"
 		while true; do case $1 in
-			-e|--reencrypt) reencrypt=1; shift ;;
-			-m|--multiuser) multiuser=1; shift ;;
+			-g|--git) init_git=1; shift ;;
 			--) shift; break ;;
 		esac done
 
-		if [[ $# -ne 1 ]]; then
-			echo "Usage: $program $command [--reencrypt,-e] gpg-id"
+		if [[ $# -lt 1 ]]; then
+			echo "Usage: $program $command [--git,-g] gpg-id [gpg-id...]"
 			exit 1
 		fi
 
-		gpg_id="$1"
+		gpg_ids="$*"
+		gpg_check_public_keys "$gpg_ids"
 		mkdir -v -p "$PREFIX"
-		echo "$gpg_id" > "$ID"
-		echo "Password store initialized for $gpg_id."
-		if [[ $multiuser -eq 1 ]]; then
-			echo "$gpg_id" >>"$ID_LIST"
-			sort "$ID_LIST" -o "$ID_LIST" -u
-			git_ignore "/$(basename $ID)"
-			git_add_file .gitignore "Ignore own id"
-			git_add_file "$ID_LIST" "Add $gpg_id to team ID list"
-		else
-			git_add_file "$ID" "Set GPG id to $gpg_id."
+		if [[ $init_git -eq 1 ]]; then
+			git init
 		fi
+		echo "$gpg_ids" | tr " " "\n" > "$IDS"
+		uniq_gpg_ids
+		echo "Password store initialized"
+		git_add_file "$IDS" "Initial commit"
 
-		if [[ $reencrypt -eq 1 ]]; then
-			find "$PREFIX" -iname '*.gpg' | while read passfile; do
-				gpg2 -d $GPG_OPTS "$passfile" | gpg2 -e $gpg_recipients -o "$passfile.new" $GPG_OPTS &&
-				mv -v "$passfile.new" "$passfile"
-			done
-			git_add_file "$PREFIX" "Reencrypted entire store using new GPG id $gpg_id."
-		fi
 		exit 0
 		;;
 	help|--help)
@@ -217,8 +211,8 @@ case "$command" in
 esac
 
 if [[ -n $PASSWORD_STORE_KEY ]]; then
-	ID="$PASSWORD_STORE_KEY"
-elif [[ ! -f $ID ]]; then
+	IDS="$PASSWORD_STORE_KEY"
+elif [[ ! -r $IDS ]]; then
 	echo "You must run:"
 	echo "    $program init your-gpg-id"
 	echo "before you may use the password store."
@@ -226,10 +220,47 @@ elif [[ ! -f $ID ]]; then
 	usage
 	exit 1
 else
-	ID="$(head -n 1 "$ID")"
+	read_recipients
 fi
 
 case "$command" in
+	reencrypt)
+		add_ids=0
+
+		opts="$($GETOPT -o a -l add-ids -n "$program" -- "$@")"
+		err=$?
+		eval set -- "$opts"
+		while true; do case $1 in
+			-a|--add-ids) add_ids=1; shift ;;
+			--) shift; break ;;
+		esac done
+
+		if [[ $err -ne 0 ]] || [[ $# -lt 1 ]]; then
+			echo "Usage: $program $command [--add-ads,-a] key-id [key-id...]"
+			exit 1
+		fi
+
+		new_ids="$*"
+		gpg_check_public_keys "$new_ids"
+
+		if [[ $add_ids -eq 1 ]]; then
+			echo $new_ids | tr " " "\n" >> "$IDS"
+		else
+			yesno "This will re-encrypt with *only* the IDs given. Are you sure?"
+			echo $new_ids | tr " " "\n" > "$IDS"
+		fi
+		uniq_gpg_ids
+
+		read_recipients
+
+		find "$PREFIX" -iname '*.gpg' | while read passfile; do
+			data=$(gpg2 -d $GPG_OPTS "$passfile")
+			echo "$data" | gpg2 -e $gpg_recipients -o "$passfile.new" $GPG_OPTS
+			mv -v "$passfile.new" "$passfile"
+		done
+		git_add_file ":/" "Reencrypted entire store"
+
+		;;
 	show|ls|list)
 		clip=0
 
@@ -434,9 +465,7 @@ case "$command" in
 		fi
 		;;
 	import)
-		while read k; do
-			gpg2 --recv-keys $k
-		done < $ID_LIST
+		xargs gpg2 --recv-keys < "$IDS"
 		;;
 	*)
 		usage
