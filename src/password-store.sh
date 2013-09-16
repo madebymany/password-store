@@ -19,12 +19,16 @@ set -e # stop on errors
 version() {
 	cat <<_EOF
 |-----------------------|
-|   Password Store      |
-|       v.1.4.2         |
+|    Password Store     |
+|      v2.0.0-pre1      |
 |       by zx2c4        |
 |                       |
 |    Jason@zx2c4.com    |
 |  Jason A. Donenfeld   |
+|                       |
+|   with additions by   |
+|   dan@stompydan.net   |
+|      Dan Brown        |
 |-----------------------|
 _EOF
 }
@@ -33,9 +37,13 @@ usage() {
 	cat <<_EOF
 
 Usage:
-    $program init [--reencrypt,-e] gpg-id
+    $program init [--git,-g] gpg-id [gpg-id...]
         Initialize new password storage and use gpg-id for encryption.
-        Optionally reencrypt existing passwords using new gpg-id.
+        Optionally also initialize it as a Git repository.
+    $program reencrypt [--add-id,-a] gpg-id [gpg-id...]
+      Reencrypt existing passwords using new gpg-id(s). If --add-id is not
+      used, the list given will overwrite the current list of IDs. If it is,
+      the given ID(s) will be appended to the current list.
     $program [ls] [subfolder]
         List passwords.
     $program [show] [--clip,-c] pass-name
@@ -262,7 +270,7 @@ case "$command" in
 		esac done
 
 		if [[ $err -ne 0 ]] || [[ $# -lt 1 ]]; then
-			echo "Usage: $program $command [--add-ads,-a] key-id [key-id...]"
+			echo "Usage: $program $command [--add-ids,-a] gpg-id [gpg-id...]"
 			exit 1
 		fi
 
