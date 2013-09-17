@@ -32,6 +32,7 @@ version() {
 └───────────────────────┘
 _EOF
 }
+
 usage() {
 	version
 	cat <<_EOF
@@ -74,12 +75,14 @@ Usage:
 More information may be found in the pass(1) man page.
 _EOF
 }
+
 is_command() {
 	case "$1" in
 		init|reencrypt|import|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
 		*) return 1 ;;
 	esac
 }
+
 git_add_file() {
 	[[ -d $GIT_DIR ]] || return
 	[[ ! -r "$1" ]] && [ "$1" != ':/' ] && return
