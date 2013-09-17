@@ -90,6 +90,12 @@ git_add_file() {
 	[[ -n $(git status --porcelain "$1") ]] || return
 	git commit -m "$2"
 }
+
+git_reset() {
+	[[ -d $GIT_DIR ]] || return
+	git reset --hard --quiet
+}
+
 yesno() {
 	read -p "$1 [y/N] " response
 	[[ $response == "y" || $response == "Y" ]] || exit 1
@@ -206,6 +212,7 @@ for cmd in tree gpg2; do
 	fi
 done
 
+trap git_reset ERR
 
 case "$command" in
 	init)
