@@ -48,8 +48,9 @@ Usage:
       the given ID(s) will be appended to the current list.
     $program [ls] [subfolder]
         List passwords.
-    $program [show] [--clip,-c] pass-name
-        Show existing password and optionally put it on the clipboard.
+    $program [show] [--clip,-c] [--open,-o] pass-name
+        Show existing password. Optionally put it on the clipboard, and open
+        the URL in your default browser.
         If put on the clipboard, it will be cleared in 45 seconds.
     $program insert [--echo,-e | --multiline,-m] [--force,-f] pass-name
         Insert new password. Optionally, the console can be enabled echo
@@ -314,28 +315,42 @@ case "$command" in
 		;;
 	show|ls|list)
 		clip=0
+		open=0
 
-		opts="$($GETOPT -o c -l clip -n "$program" -- "$@")"
+		opts="$($GETOPT -o co -l clip,open -n "$program" -- "$@")"
 		err=$?
 		eval set -- "$opts"
 		while true; do case $1 in
 			-c|--clip) clip=1; shift ;;
+			-o|--open) open=1; shift ;;
 			--) shift; break ;;
 		esac done
 
 		if [[ $err -ne 0 ]]; then
-			echo "Usage: $program $command [--clip,-c] [pass-name]"
+			echo "Usage: $program $command [--clip,-c] [--open,-o] [pass-name]"
 			exit 1
 		fi
 
 		path="$1"
 		passfile="$PREFIX/$path.gpg"
 		if [[ -f $passfile ]]; then
+			data="$(gpg2 -d $GPG_OPTS "$passfile")"
+			url="$(sed -ne 's/^URL: //p' <<<"$data")"
+			if [[ $open -eq 1 ]] && [[ -n $url ]]; then
+				open "$url"
+			fi
+
 			if [[ $clip -eq 0 ]]; then
-				exec gpg2 -d $GPG_OPTS "$passfile"
+				echo "$data"
 			else
-				pass="$(gpg2 -d $GPG_OPTS "$passfile" | head -n 1)"
-				[[ -n $pass ]] || exit 1
+				pass="$(sed -ne 's/^Password: //p' <<<"$data")"
+				grep -v "^Password: " <<<"$data"
+				if [[ -z $pass ]]; then
+					echo "No password found; nothing clipped."
+					exit 1
+				else
+					echo
+				fi
 				clip "$pass" "$path"
 			fi
 		elif [[ -d $PREFIX/$path ]]; then
