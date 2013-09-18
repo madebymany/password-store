@@ -15,6 +15,7 @@ export GIT_WORK_TREE="${PASSWORD_STORE_GIT:-$PREFIX}"
 export GPG_TTY=$(tty) # otherwise pinentry fails in a pipe
 
 set -e # stop on errors
+set -o pipefail
 
 version() {
 	cat <<_EOF
@@ -297,11 +298,17 @@ case "$command" in
 
 		read_recipients
 
-		find "$PREFIX" -iname '*.gpg' | while read passfile; do
+		files=$(find "$PREFIX" -iname '*.gpg')
+		ORIG_IFS="$IFS"
+		IFS=$'\n'
+		for passfile in $files; do
+			IFS=$ORIG_IFS
+			[[ -z "$passfile" ]] && continue
 			data=$(gpg2 -d $GPG_OPTS "$passfile")
-			echo "$data" | gpg2 -e $gpg_recipients -o "$passfile.new" $GPG_OPTS
-			mv -v "$passfile.new" "$passfile"
+			gpg2 -e $gpg_recipients -o "${passfile}.new" $GPG_OPTS <<<"$data"
+			mv -v "${passfile}.new" "$passfile"
 		done
+		IFS="$ORIG_IFS"
 		git_add_file ":/" "Reencrypted entire store"
 
 		;;
