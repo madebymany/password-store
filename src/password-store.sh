@@ -55,8 +55,8 @@ Usage:
         Insert new password. Optionally, the console can be enabled echo
         the password back. Or, optionally, it may be multiline. Prompt
         before overwriting existing password unless forced.
-    $program import
-        import team keys from $IDS
+    $program recv-keys
+        Download team keys from $IDS from default GPG keyserver.
     $program edit pass-name
         Insert a new password or edit an existing password using ${EDITOR:-vi}.
     $program generate [--no-symbols,-n] [--clip,-c] [--force,-f] pass-name pass-length
@@ -79,7 +79,7 @@ _EOF
 
 is_command() {
 	case "$1" in
-		init|reencrypt|import|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
+		init|reencrypt|recv-keys|ls|list|show|insert|edit|generate|remove|rm|delete|git|help|--help|version|--version) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -302,7 +302,7 @@ case "$command" in
 		ORIG_IFS="$IFS"
 		IFS=$'\n'
 		for passfile in $files; do
-			IFS=$ORIG_IFS
+			IFS="$ORIG_IFS"
 			[[ -z "$passfile" ]] && continue
 			data=$(gpg2 -d $GPG_OPTS "$passfile")
 			gpg2 -e $gpg_recipients -o "${passfile}.new" $GPG_OPTS <<<"$data"
@@ -503,7 +503,7 @@ case "$command" in
 			exit 1
 		fi
 		;;
-	import)
+	recv-keys)
 		xargs gpg2 --recv-keys < "$IDS"
 		;;
 	*)
