@@ -152,8 +152,9 @@ gpg_sign_keys() {
 }
 
 gpg_check_public_keys() {
+	local given_keys="$*"
 	local missing_keys=$(comm -23 \
-			<(tr " " "\n" <<<"$*" | sort) \
+			<(sort <<<"${given_keys// /$'\n'}") \
 			<(gpg2 --list-public-keys --with-colons $* 2>/dev/null | \
 			  awk -F: '/^pub:/ {print substr($5, length($5) - 7)}' | sort) | xargs)
 
@@ -164,6 +165,7 @@ gpg_check_public_keys() {
 		echo
 		echo "You will need to sign these keys before you can encrypt anything for them."
 		gpg_sign_keys $missing_keys
+		echo
 	fi
 }
 
@@ -180,6 +182,7 @@ gpg_verify_keychain_ready() {
 	if [[ -n $keys_to_sign ]]; then
 		echo "You need to sign the following key(s) before continuing: ${keys_to_sign}"
 		gpg_sign_keys $keys_to_sign
+		echo
 	fi
 }
 
@@ -310,7 +313,7 @@ case "$command" in
 		if [[ $init_git -eq 1 ]]; then
 			git init
 		fi
-		echo "$gpg_ids" | tr " " "\n" > "$IDS"
+		echo "${gpg_ids// /$'\n'}" > "$IDS"
 		uniq_gpg_ids
 		echo "Password store initialized"
 		git_add_file "$IDS" "Initial commit"
@@ -360,11 +363,12 @@ case "$command" in
 		new_ids="$*"
 		gpg_check_public_keys "$new_ids"
 
+		new_ids="${new_ids// /$'\n'}"
 		if [[ $replace_ids -eq 1 ]]; then
 			yesno "This will re-encrypt with *only* the IDs given. Are you sure?"
-			echo $new_ids | tr " " "\n" > "$IDS"
+			echo "$new_ids" > "$IDS"
 		else
-			echo $new_ids | tr " " "\n" >> "$IDS"
+			echo "$new_ids" >> "$IDS"
 		fi
 		uniq_gpg_ids
 
