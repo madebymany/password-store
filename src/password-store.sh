@@ -42,7 +42,7 @@ Usage:
     $program init [--git,-g] gpg-id [gpg-id...]
         Initialize new password storage and use gpg-id for encryption.
         Optionally also initialize it as a Git repository.
-    $program reencrypt [--add-id,-a] gpg-id [gpg-id...]
+    $program reencrypt [--replace-ids,-r] gpg-id [gpg-id...]
       Reencrypt existing passwords using new gpg-id(s). If --add-id is not
       used, the list given will overwrite the current list of IDs. If it is,
       the given ID(s) will be appended to the current list.
@@ -342,29 +342,29 @@ fi
 
 case "$command" in
 	reencrypt)
-		add_ids=0
+		replace_ids=0
 
-		opts="$($GETOPT -o a -l add-ids -n "$program" -- "$@")"
+		opts="$($GETOPT -o r -l replace-ids -n "$program" -- "$@")"
 		err=$?
 		eval set -- "$opts"
 		while true; do case $1 in
-			-a|--add-ids) add_ids=1; shift ;;
+			-r|--replace-ids) replace_ids=1; shift ;;
 			--) shift; break ;;
 		esac done
 
 		if [[ $err -ne 0 ]] || [[ $# -lt 1 ]]; then
-			echo "Usage: $program $command [--add-ids,-a] gpg-id [gpg-id...]"
+			echo "Usage: $program $command [--replace-ids,-r] gpg-id [gpg-id...]"
 			exit 1
 		fi
 
 		new_ids="$*"
 		gpg_check_public_keys "$new_ids"
 
-		if [[ $add_ids -eq 1 ]]; then
-			echo $new_ids | tr " " "\n" >> "$IDS"
-		else
+		if [[ $replace_ids -eq 1 ]]; then
 			yesno "This will re-encrypt with *only* the IDs given. Are you sure?"
 			echo $new_ids | tr " " "\n" > "$IDS"
+		else
+			echo $new_ids | tr " " "\n" >> "$IDS"
 		fi
 		uniq_gpg_ids
 
