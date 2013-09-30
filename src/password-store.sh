@@ -103,12 +103,83 @@ yesno() {
 	[[ $response == "y" || $response == "Y" ]] || exit 1
 }
 
-gpg_check_public_keys() {
-	local num=$(echo $1 | wc -w)
-	local num_valid=$(gpg2 --with-colons --list-public-keys $1 | grep "^pub:" -c)
-	if (( $num != $num_valid )); then
-		echo "One or more key IDs are not in your keychain. Please check and try again."
+get_user_gpg_id() {
+	[[ -n "$user_gpg_id" ]] && return 0
+
+	user_gpg_id=$(comm -12 \
+		<(gpg2 --list-public-keys --with-colons | awk -F: '/^pub:u:/{print $5}') \
+		<(gpg2 --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5}'))
+
+	if [[ $(wc -l <<<"$user_gpg_id") -gt 1 ]]; then
+		echo "Multiple personal GPG IDs found; can't choose between them yet." >&2
 		exit 1
+	fi
+}
+
+gpg_key_signed_by() {
+	gpg2 --list-sigs --with-colons "$1" | awk -F: '
+	BEGIN {
+		_success = 0
+	}
+	/^sig:/ {
+		if ($5 == "'$2'") {
+			_success = 1
+			exit
+		}
+	}
+	END {
+		if (_success) {
+			exit 0
+		} else {
+			exit 1
+		}
+	}'
+	return $?
+}
+
+gpg_sign_keys() {
+	echo
+	echo -ne "\033[1;31mWARNING:\033[0m "
+	echo -e "You \033[1;37mmust\033[0m check each key's fingerprint and user ID with the real person behind it. Signing unchecked keys can compromise the entire security model of this store."
+	echo
+	echo "Press enter to start signing..."
+	read
+
+	for gpg_id in $*; do
+		gpg2 --sign-key $gpg_id
+		echo
+	done
+}
+
+gpg_check_public_keys() {
+	local missing_keys=$(comm -23 \
+			<(tr " " "\n" <<<"$*" | sort) \
+			<(gpg2 --list-public-keys --with-colons $* 2>/dev/null | \
+			  awk -F: '/^pub:/ {print substr($5, length($5) - 7)}' | sort) | xargs)
+
+	if [[ -n "$missing_keys" ]]; then
+		echo "The following public keys are missing from your keychain: $missing_keys"
+		yesno "Would you like to fetch them from the keyserver?"
+		gpg2 --recv-keys $missing_keys
+		echo
+		echo "You will need to sign these keys before you can encrypt anything for them."
+		gpg_sign_keys $missing_keys
+	fi
+}
+
+gpg_verify_keychain_ready() {
+	gpg_check_public_keys $(xargs < "$IDS")
+	get_user_gpg_id
+	local keys_to_sign=""
+	while read gpg_id; do
+		if [[ $user_gpg_id != *"${gpg_id}" ]] && ! gpg_key_signed_by $gpg_id $user_gpg_id; then
+			keys_to_sign="${keys_to_sign}${gpg_id} "
+		fi
+	done < "$IDS"
+
+	if [[ -n $keys_to_sign ]]; then
+		echo "You need to sign the following key(s) before continuing: ${keys_to_sign}"
+		gpg_sign_keys $keys_to_sign
 	fi
 }
 
@@ -297,6 +368,7 @@ case "$command" in
 		fi
 		uniq_gpg_ids
 
+		gpg_verify_keychain_ready
 		read_recipients
 
 		files=$(find "$PREFIX" -iname '*.gpg')
@@ -387,6 +459,8 @@ case "$command" in
 		path="$1"
 		passfile="$PREFIX/$path.gpg"
 
+		gpg_verify_keychain_ready
+
 		[[ $force -eq 0 && -e $passfile ]] && yesno "An entry already exists for $path. Overwrite it?"
 
 		mkdir -p -v "$PREFIX/$(dirname "$path")"
@@ -406,6 +480,8 @@ case "$command" in
 			echo "Usage: $program $command pass-name"
 			exit 1
 		fi
+
+		gpg_verify_keychain_ready
 
 		path="$1"
 		mkdir -p -v "$PREFIX/$(dirname "$path")"
@@ -454,6 +530,9 @@ case "$command" in
 			echo "pass-length \"$length\" must be a number."
 			exit 1
 		fi
+
+		gpg_verify_keychain_ready
+
 		mkdir -p -v "$PREFIX/$(dirname "$path")"
 		passfile="$PREFIX/$path.gpg"
 
