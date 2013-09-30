@@ -21,7 +21,7 @@ version() {
 	cat <<_EOF
 ┌───────────────────────┐
 │    Password Store     │
-│      v2.0.0-pre2      │
+│      v2.0.0-pre3      │
 │       by zx2c4        │
 │                       │
 │    Jason@zx2c4.com    │
