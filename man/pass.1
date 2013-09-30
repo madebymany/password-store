@@ -51,15 +51,19 @@ password names in
 .SH COMMANDS
 
 .TP
-\fBinit\fP [ \fI--reencrypt\fP, \fI-e\fP ] \fIgpg-id\fP
+\fBinit\fP \fIgpg-id\fP [ \fIgpg-id\fP ... ]
 Initialize new password storage and use
-.I gpg-id
+.I gpg-id(s)
 for encryption. This command must be run first before a password store can be
-used. If \fI--reencrypt\fP or \fI-e\fP is specified, reencrypt all existing
-passwords in the password store using \fIgpg-id\fP. Note that use of
+used. Note that use of
 .BR gpg-agent (1)
 is recommended so that the batch decryption does not require as much user
 intervention.
+.TP
+\fBreencrypt\fP [ \fI-r\fP, \fI--replace-ids\fP ] \fIgpg-id\fP [ \fIgpg-id\fP ... ]
+Re-encrypt all data for the given \fIgpg-id(s)\fP. By default, the given IDs
+are added to the list of recipients; if \fI-r\fP or \fI--replace-ids\fP is
+specified, the given list of IDs replaces the current list in the store.
 .TP
 \fBls\fP \fIsubfolder\fP
 List names of passwords inside the tree at
@@ -357,6 +361,9 @@ For updates and more information, a project page is available on the
 .UR http://\:zx2c4.com/\:projects/\:password-store
 World Wide Web
 .UE .
+.P
+Version 2, with support for multiple GPG recipients, was developed by
+Dan Brown <dan@stompydan.net>
 
 .SH COPYING
 This program is free software; you can redistribute it and/or
